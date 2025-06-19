@@ -20,11 +20,13 @@ app.get('/api/ticker', async (req, res) => {
       return t || "-";
     }
 
-    // 등락폭/퍼센트 같이 파싱 (예외대응)
+    // 등락폭/퍼센트 파싱 (KOSPI/KOSDAQ 등)
     function parseChgAndRate(sel) {
       const raw = safeText(sel);
+      // "5.55 +0.19%" 같은 패턴에서 추출
       const m = raw.match(/([+-]?[0-9\.,]+)\s*\(?([+-]?[0-9\.,]+)%?\)?/);
       if (m) return { change: m[1], rate: m[2] };
+      // 못 찾으면 숫자만 추출
       const n = raw.match(/([+-]?[0-9\.,]+)/g) || [];
       return { change: n[0] || '-', rate: n[1] || '-' };
     }
@@ -59,18 +61,17 @@ app.get('/api/ticker', async (req, res) => {
       vixUp = vixBox.find('.head_info .change').hasClass('up') || vixBox.find('.head_info .change').hasClass('plus');
     }
 
-    // 2. 환율 (USD/KRW) - 퍼센트 안정 추출
+    // 2. 환율 (USD/KRW)
     const { data: fxData } = await axios.get('https://finance.naver.com/marketindex/?tabSel=exchange#tab_section');
     const $$ = cheerio.load(fxData);
 
-    // 퍼센트값(등락률) 필터링
+    // blind 클래스를 순회해서 %가 있는 값만 추출(환율 등락률 정확히 추출)
     function extractRateBlind($root) {
-      // 가장 첫 번째 %포함된 blind 텍스트
       const blindList = $root.find('.blind').toArray();
       for (let b of blindList) {
         const txt = $$(b).text();
         if (txt.includes('%')) {
-          return txt.replace('%','').trim();
+          return txt.replace('%','').replace('+','').replace('-','').trim();
         }
       }
       return '-';
@@ -83,7 +84,7 @@ app.get('/api/ticker', async (req, res) => {
       up: usdkrwRoot.find('.change').hasClass('up') || usdkrwRoot.find('.change').hasClass('plus')
     };
 
-    // 3. 미국지수 (야후)
+    // 3. 미국지수 (야후 파이낸스)
     let sp500 = { value: "-", change: "-", rate: "-", up: false }, nasdaq = { value: "-", change: "-", rate: "-", up: false };
     try {
       const yResp = await axios.get('https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGSPC,%5EIXIC');
@@ -91,23 +92,23 @@ app.get('/api/ticker', async (req, res) => {
       if (resArr[0]) sp500 = {
         value: resArr[0].regularMarketPrice ?? "-",
         change: (resArr[0].regularMarketChange ?? 0).toFixed(2),
-        rate: (resArr[0].regularMarketChangePercent ?? 0).toFixed(2),
+        rate: Math.abs(resArr[0].regularMarketChangePercent ?? 0).toFixed(2),
         up: resArr[0].regularMarketChange >= 0
       };
       if (resArr[1]) nasdaq = {
         value: resArr[1].regularMarketPrice ?? "-",
         change: (resArr[1].regularMarketChange ?? 0).toFixed(2),
-        rate: (resArr[1].regularMarketChangePercent ?? 0).toFixed(2),
+        rate: Math.abs(resArr[1].regularMarketChangePercent ?? 0).toFixed(2),
         up: resArr[1].regularMarketChange >= 0
       };
     } catch(e){
-      // 야후 api 실패시 "-"
+      // 실패시 안전하게 "-"
     }
 
     // 최종 json 반환
     res.json({
-      kospi: { value: kospi, change: kospiChgRate.change, rate: kospiChgRate.rate, up: kospiUp },
-      kosdaq: { value: kosdaq, change: kosdaqChgRate.change, rate: kosdaqChgRate.rate, up: kosdaqUp },
+      kospi: { value: kospi, change: kospiChgRate.change, rate: Math.abs(kospiChgRate.rate), up: kospiUp },
+      kosdaq: { value: kosdaq, change: kosdaqChgRate.change, rate: Math.abs(kosdaqChgRate.rate), up: kosdaqUp },
       usdkrw,
       dollarIdx: { value: dollarIdx, change: dollarIdxChange, rate: dollarIdxRate, up: dollarIdxUp },
       sp500,
@@ -122,3 +123,4 @@ app.get('/api/ticker', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log('서버 실행중:', PORT));
+
