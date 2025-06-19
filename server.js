@@ -14,19 +14,17 @@ app.get('/api/ticker', async (req, res) => {
     const { data } = await axios.get('https://finance.naver.com/sise/');
     const $ = cheerio.load(data);
 
-    // 파싱 헬퍼
+    // 텍스트 헬퍼
     function safeText(sel) {
       const t = $(sel).text().replace(/\s+/g, ' ').replace(/[^\w\s\.,\-\+%]/g, '').trim();
       return t || "-";
     }
 
-    // KOSPI/KOSDAQ: 등락폭+퍼센트 같이 파싱
+    // 등락폭/퍼센트 같이 파싱 (예외대응)
     function parseChgAndRate(sel) {
       const raw = safeText(sel);
       const m = raw.match(/([+-]?[0-9\.,]+)\s*\(?([+-]?[0-9\.,]+)%?\)?/);
-      // m[1]: 등락폭, m[2]: 퍼센트
       if (m) return { change: m[1], rate: m[2] };
-      // 대체: 등락폭, rate 둘 다 raw에서 추출
       const n = raw.match(/([+-]?[0-9\.,]+)/g) || [];
       return { change: n[0] || '-', rate: n[1] || '-' };
     }
@@ -61,17 +59,31 @@ app.get('/api/ticker', async (req, res) => {
       vixUp = vixBox.find('.head_info .change').hasClass('up') || vixBox.find('.head_info .change').hasClass('plus');
     }
 
-    // 2. 환율 (USD/KRW)
+    // 2. 환율 (USD/KRW) - 퍼센트 안정 추출
     const { data: fxData } = await axios.get('https://finance.naver.com/marketindex/?tabSel=exchange#tab_section');
     const $$ = cheerio.load(fxData);
+
+    // 퍼센트값(등락률) 필터링
+    function extractRateBlind($root) {
+      // 가장 첫 번째 %포함된 blind 텍스트
+      const blindList = $root.find('.blind').toArray();
+      for (let b of blindList) {
+        const txt = $$(b).text();
+        if (txt.includes('%')) {
+          return txt.replace('%','').trim();
+        }
+      }
+      return '-';
+    }
+    const usdkrwRoot = $$('#exchangeList .head_info').eq(0);
     const usdkrw = {
-      value: $$('#exchangeList .head_info').eq(0).find('.value').text().trim() || "-",
-      change: $$('#exchangeList .head_info').eq(0).find('.change').text().trim() || "-",
-      rate: ($$('#exchangeList .head_info').eq(0).find('.change').next('.blind').text().replace('%','').trim()) || "-",
-      up: $$('#exchangeList .head_info').eq(0).find('.change').hasClass('up') || $$('#exchangeList .head_info').eq(0).find('.change').hasClass('plus')
+      value: usdkrwRoot.find('.value').text().trim() || "-",
+      change: usdkrwRoot.find('.change').text().trim() || "-",
+      rate: extractRateBlind(usdkrwRoot),
+      up: usdkrwRoot.find('.change').hasClass('up') || usdkrwRoot.find('.change').hasClass('plus')
     };
 
-    // 3. 미국 지수 (야후 파이낸스)
+    // 3. 미국지수 (야후)
     let sp500 = { value: "-", change: "-", rate: "-", up: false }, nasdaq = { value: "-", change: "-", rate: "-", up: false };
     try {
       const yResp = await axios.get('https://query1.finance.yahoo.com/v7/finance/quote?symbols=%5EGSPC,%5EIXIC');
@@ -89,9 +101,10 @@ app.get('/api/ticker', async (req, res) => {
         up: resArr[1].regularMarketChange >= 0
       };
     } catch(e){
-      // API 실패시도 안전하게 "-"
+      // 야후 api 실패시 "-"
     }
 
+    // 최종 json 반환
     res.json({
       kospi: { value: kospi, change: kospiChgRate.change, rate: kospiChgRate.rate, up: kospiUp },
       kosdaq: { value: kosdaq, change: kosdaqChgRate.change, rate: kosdaqChgRate.rate, up: kosdaqUp },
@@ -109,4 +122,3 @@ app.get('/api/ticker', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log('서버 실행중:', PORT));
-
