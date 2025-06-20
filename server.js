@@ -1,6 +1,7 @@
 const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
+const iconv = require('iconv-lite');
 const app = express();
 
 app.use((req, res, next) => {
@@ -44,12 +45,15 @@ async function fetchAllIndices() {
     }
   }
 
-  // 2. USD/KRW 환율 (Naver)
+  // 2. USD/KRW 환율 (Naver - EUC-KR)
   try {
     const resp = await axios.get('https://finance.naver.com/marketindex/', {
+      responseType: 'arraybuffer',
       headers: { 'User-Agent': 'Mozilla/5.0' }
     });
-    const $ = cheerio.load(resp.data);
+
+    const decodedData = iconv.decode(resp.data, 'euc-kr');
+    const $ = cheerio.load(decodedData);
 
     const usdkrwRoot = $('#exchangeList > li').filter((i, el) => {
       const href = $(el).find('a').attr('href');
@@ -59,14 +63,16 @@ async function fetchAllIndices() {
     const price = usdkrwRoot.find('.value').text().replace(/,/g, '').trim();
     const change = usdkrwRoot.find('.change').text().replace(/,/g, '').trim();
 
-    // ✅ 퍼센트 추출 보완
     let rate = '-';
     usdkrwRoot.find('.head_info .blind').each((i, el) => {
       const txt = $(el).text();
+      console.log('blind txt', i, txt); // 디버깅용 로그
       if (txt.includes('%')) {
         rate = txt.replace(/[()%]/g, '').trim();
       }
     });
+
+    console.log('parsed rate:', rate); // 확인용 로그
 
     const up = usdkrwRoot.find('.change').hasClass('up') || usdkrwRoot.find('.change').hasClass('plus');
 
@@ -95,9 +101,9 @@ app.get('/api/ticker', async (req, res) => {
   }
 });
 
-// Render 호환 포트 설정
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`서버 실행중: ${PORT}`));
+
 
 
 
