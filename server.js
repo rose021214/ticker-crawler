@@ -66,13 +66,18 @@ async function fetchAllIndices() {
     let rate = '-';
     usdkrwRoot.find('.head_info .blind').each((i, el) => {
       const txt = $(el).text();
-      console.log('blind txt', i, txt); // 디버깅용 로그
       if (txt.includes('%')) {
         rate = txt.replace(/[()%]/g, '').trim();
       }
     });
 
-    console.log('parsed rate:', rate); // 확인용 로그
+    // 🔁 fallback 방식: .change 바로 다음 blind에서도 시도
+    if (rate === '-') {
+      const fallback = usdkrwRoot.find('.change').next('.blind').text();
+      if (fallback.includes('%')) {
+        rate = fallback.replace(/[()%]/g, '').trim();
+      }
+    }
 
     const up = usdkrwRoot.find('.change').hasClass('up') || usdkrwRoot.find('.change').hasClass('plus');
 
@@ -103,6 +108,7 @@ app.get('/api/ticker', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`서버 실행중: ${PORT}`));
+
 
 
 
