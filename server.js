@@ -9,7 +9,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// 주요 타겟(인덱스/지수)
 const targets = [
   { key: 'kospi',   url: 'https://www.investing.com/indices/kospi' },
   { key: 'kosdaq',  url: 'https://www.investing.com/indices/kosdaq' },
@@ -19,11 +18,10 @@ const targets = [
   { key: 'vix',     url: 'https://www.investing.com/indices/volatility-s-p-500' }
 ];
 
-// 모든 인덱스/환율 데이터 수집 함수
 async function fetchAllIndices() {
   const result = {};
 
-  // 1. 주요 지수/인덱스 (Investing.com)
+  // 1. 주요 지수 (Investing.com)
   for (const { key, url } of targets) {
     try {
       const resp = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
@@ -45,7 +43,7 @@ async function fetchAllIndices() {
     }
   }
 
-  // 2. USD/KRW 환율 (Naver - EUC-KR)
+  // 2. USD/KRW (Naver + 퍼센트 직접 계산)
   try {
     const resp = await axios.get('https://finance.naver.com/marketindex/', {
       responseType: 'arraybuffer',
@@ -60,31 +58,26 @@ async function fetchAllIndices() {
       return href && href.includes('FX_USDKRW');
     }).first();
 
-    const price = usdkrwRoot.find('.value').text().replace(/,/g, '').trim();
-    const change = usdkrwRoot.find('.change').text().replace(/,/g, '').trim();
+    const priceText = usdkrwRoot.find('.value').text().replace(/,/g, '').trim();
+    const changeText = usdkrwRoot.find('.change').text().replace(/,/g, '').trim();
 
+    const price = parseFloat(priceText);
+    const change = parseFloat(changeText);
     let rate = '-';
-    usdkrwRoot.find('.head_info .blind').each((i, el) => {
-      const txt = $(el).text();
-      if (txt.includes('%')) {
-        rate = txt.replace(/[()%]/g, '').trim();
-      }
-    });
 
-    // 🔁 fallback 방식: .change 바로 다음 blind에서도 시도
-    if (rate === '-') {
-      const fallback = usdkrwRoot.find('.change').next('.blind').text();
-      if (fallback.includes('%')) {
-        rate = fallback.replace(/[()%]/g, '').trim();
+    if (!isNaN(price) && !isNaN(change)) {
+      const yesterday = price - change;
+      if (yesterday !== 0) {
+        rate = ((change / yesterday) * 100).toFixed(2);
       }
     }
 
     const up = usdkrwRoot.find('.change').hasClass('up') || usdkrwRoot.find('.change').hasClass('plus');
 
     result['usdkrw'] = {
-      value: price || '-',
-      change: change || '-',
-      rate: rate || '-',
+      value: priceText || '-',
+      change: changeText || '-',
+      rate: rate,
       up
     };
   } catch (e) {
@@ -106,8 +99,13 @@ app.get('/api/ticker', async (req, res) => {
   }
 });
 
+// 서버 실행
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`서버 실행중: ${PORT}`));
+
+
+
+
 
 
 
