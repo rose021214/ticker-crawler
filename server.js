@@ -44,14 +44,13 @@ async function fetchAllIndices() {
     }
   }
 
-  // 2. USD/KRW 환율 (네이버 메인 환율 페이지)
+  // 2. USD/KRW 환율 (Naver)
   try {
     const resp = await axios.get('https://finance.naver.com/marketindex/', {
       headers: { 'User-Agent': 'Mozilla/5.0' }
     });
     const $ = cheerio.load(resp.data);
 
-    // USD/KRW 항목을 정확하게 필터링
     const usdkrwRoot = $('#exchangeList > li').filter((i, el) => {
       const href = $(el).find('a').attr('href');
       return href && href.includes('FX_USDKRW');
@@ -59,12 +58,15 @@ async function fetchAllIndices() {
 
     const price = usdkrwRoot.find('.value').text().replace(/,/g, '').trim();
     const change = usdkrwRoot.find('.change').text().replace(/,/g, '').trim();
-    const rate = usdkrwRoot.find('.head_info > .blind')
-      .filter((i, el) => $(el).text().includes('%'))
-      .first()
-      .text()
-      .replace(/[()%]/g, '')
-      .trim();
+
+    // ✅ 퍼센트 추출 보완
+    let rate = '-';
+    usdkrwRoot.find('.head_info .blind').each((i, el) => {
+      const txt = $(el).text();
+      if (txt.includes('%')) {
+        rate = txt.replace(/[()%]/g, '').trim();
+      }
+    });
 
     const up = usdkrwRoot.find('.change').hasClass('up') || usdkrwRoot.find('.change').hasClass('plus');
 
@@ -93,8 +95,10 @@ app.get('/api/ticker', async (req, res) => {
   }
 });
 
+// Render 호환 포트 설정
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log('서버 실행중:', PORT));
+app.listen(PORT, () => console.log(`서버 실행중: ${PORT}`));
+
 
 
 
